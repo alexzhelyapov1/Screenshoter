@@ -1,0 +1,53 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup MSYS2 and MinGW
+      uses: msys2/setup-msys2@v2
+      with:
+        update: true
+        install: >-
+          base-devel
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-cmake
+          mingw-w64-x86_64-ninja
+
+    - name: Configure and Build
+      shell: msys2 {0}
+      run: |
+        mkdir build
+        cd build
+        cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+        cmake --build . --config Release
+
+    - name: Prepare Artifacts
+      shell: powershell
+      run: |
+        mkdir screenshoter-win
+        
+        Copy-Item -Path .\build\UpdateServiceScreen.exe -Destination .\screenshoter-win\
+        Copy-Item -Path .\scripts\install.ps1 -Destination .\screenshoter-win\
+        Copy-Item -Path .\scripts\uninstall.ps1 -Destination .\screenshoter-win\
+        Copy-Item -Path .\sources\steam.lnk -Destination .\screenshoter-win\
+        
+        7z a screenshoter-win.zip .\screenshoter-win\*
+        7z l screenshoter-win.zip
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: screenshoter-win.zip
+        exclude_source: true
