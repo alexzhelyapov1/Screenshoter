@@ -3,12 +3,12 @@ name: Create Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*' # Trigger on tags like v1.0, v2.3.4
 
 jobs:
-  build-windows:
+  build-and-release-windows:
     permissions:
-      contents: write
+      contents: write # Needed to create releases and upload assets
     runs-on: windows-latest
 
     steps:
@@ -24,6 +24,7 @@ jobs:
           mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-ninja
+          p7zip
 
     - name: Configure and Build
       shell: msys2 {0}
@@ -33,21 +34,128 @@ jobs:
         cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
         cmake --build . --config Release
 
-    - name: Prepare Artifacts
+    - name: Prepare Files for Packaging
+      id: prepare # Give this step an ID to reference its output
       shell: powershell
       run: |
-        mkdir screenshoter-win
-        
-        Copy-Item -Path .\build\UpdateServiceScreen.exe -Destination .\screenshoter-win\
-        Copy-Item -Path .\scripts\install.ps1 -Destination .\screenshoter-win\
-        Copy-Item -Path .\scripts\uninstall.ps1 -Destination .\screenshoter-win\
-        Copy-Item -Path .\sources\steam.lnk -Destination .\screenshoter-win\
-        
-        7z a screenshoter-win.zip .\screenshoter-win\*
-        7z l screenshoter-win.zip
+        $stagingDir = ".\screenshoter-win"
+        New-Item -ItemType Directory -Path $stagingDir -Force
+        Copy-Item -Path ".\build\UpdateServiceScreen.exe" -Destination $stagingDir
+        Copy-Item -Path ".\scripts\install.ps1" -Destination $stagingDir
+        Copy-Item -Path ".\scripts\uninstall.ps1" -Destination $stagingDir
+        Copy-Item -Path ".\sources\steam.lnk" -Destination $stagingDir
+        Copy-Item -Path ".\sources\trust_alex.cer" -Destination $stagingDir
+        echo "STAGING_DIR=$stagingDir" >> $env:GITHUB_OUTPUT
+
+    - name: Install Certificate Chain
+      shell: powershell
+      env:
+        ROOT_CA_CERT_BASE64: ${{ secrets.ROOT_CA_CERT_BASE64 }}
+      run: |
+        # Install Root CA certificate
+        if ($env:ROOT_CA_CERT_BASE64) {
+          Write-Host "Importing Root CA certificate..."
+          try {
+            $rootCertBytes = [System.Convert]::FromBase64String($env:ROOT_CA_CERT_BASE64)
+            $rootCertPath = Join-Path $env:RUNNER_TEMP "RootCA.cer"
+            [System.IO.File]::WriteAllBytes($rootCertPath, $rootCertBytes)
+            # Import into the Local Machine's Root store
+            Import-Certificate -FilePath $rootCertPath -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop
+            Remove-Item $rootCertPath -Force
+            Write-Host "Root CA certificate imported successfully."
+          } catch {
+            Write-Error "Failed to import Root CA certificate: $($_.Exception.Message)"
+            throw $_ # Fail the workflow if import fails
+          }
+        } else {
+          # Fail the workflow if the required Root CA secret is missing
+          throw "Required secret ROOT_CA_CERT_BASE64 is missing."
+        }
+
+    - name: Sign Artifacts
+      shell: powershell
+      env:
+        PFX_BASE64: ${{ secrets.PFX_BASE64 }}
+        PFX_PASSWORD: ${{ secrets.PFX_PASSWORD }}
+        SIGNTOOL_PATH: 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe'
+        TIMESTAMP_SERVER: http://timestamp.sectigo.com
+      run: |
+        $stagingDir = "${{ steps.prepare.outputs.STAGING_DIR }}"
+        $pfxPath = Join-Path $env:RUNNER_TEMP "signing_cert.pfx"
+
+        Write-Host "Decoding PFX certificate..."
+        try {
+          # Decode the Base64 secret into the PFX file
+          $pfxBytes = [System.Convert]::FromBase64String($env:PFX_BASE64)
+          [System.IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+
+          # Sign the executable using signtool
+          $exePath = Join-Path $stagingDir "UpdateServiceScreen.exe"
+          if (Test-Path $exePath) {
+            Write-Host "Signing $exePath using signtool..."
+            # Execute signtool with PFX, password, timestamp server, and SHA256 hashing
+            & $env:SIGNTOOL_PATH sign /f $pfxPath /p $env:PFX_PASSWORD /tr $env:TIMESTAMP_SERVER /td sha256 /fd sha256 $exePath
+            # Check if signtool exited with an error code
+            if ($LASTEXITCODE -ne 0) { throw "Signtool failed for $exePath with exit code $LASTEXITCODE" }
+             Write-Host "Successfully signed $exePath."
+          } else {
+            Write-Warning "$exePath not found for signing."
+          }
+
+          # Load the certificate object from PFX for PowerShell signing
+          Write-Host "Loading certificate object for PowerShell script signing..."
+          $securePassword = ConvertTo-SecureString -String $env:PFX_PASSWORD -AsPlainText -Force
+          # Create the X509Certificate2 object required by Set-AuthenticodeSignature
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $securePassword)
+
+          # Find and sign all PowerShell scripts in the staging directory
+          $ps1Files = Get-ChildItem -Path $stagingDir -Filter *.ps1
+          if ($ps1Files) {
+            foreach ($scriptFile in $ps1Files) {
+              Write-Host "Signing $($scriptFile.FullName) using Set-AuthenticodeSignature..."
+              # Sign the PS1 file using the loaded certificate and timestamp server
+              # -Force overwrites existing signatures, -Verbose provides more output
+              $signature = Set-AuthenticodeSignature -FilePath $scriptFile.FullName -Certificate $cert -TimestampServer $env:TIMESTAMP_SERVER -Force -Verbose
+              Write-Host "Signature status for $($scriptFile.Name): $($signature.Status)"
+              # CRITICAL: Check if the signing was actually successful ('Valid')
+              if ($signature.Status -ne 'Valid') {
+                  # Throw an error to fail the workflow if signing didn't result in a 'Valid' status
+                  throw "Failed to sign $($scriptFile.FullName). Status: $($signature.Status). StatusInfo: $($signature.StatusMessage)"
+              } else {
+                  Write-Host "Successfully signed $($scriptFile.FullName)."
+              }
+            }
+          } else {
+             Write-Warning "No *.ps1 files found in $stagingDir for signing."
+          }
+
+          Write-Host "All signing tasks completed successfully."
+
+        } catch {
+            # Catch any exceptions during the signing process
+            Write-Error "An error occurred during signing step: $($_.Exception.Message)"
+            throw $_ # Re-throw the exception to ensure the workflow fails
+        } finally {
+            # Cleanup: Securely remove the temporary PFX file regardless of success or failure
+            if (Test-Path $pfxPath) {
+                Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+                Write-Host "Temporary PFX file removed."
+            }
+        }
+
+    - name: Package Artifacts
+      shell: powershell
+      run: |
+        $stagingDir = "${{ steps.prepare.outputs.STAGING_DIR }}"
+        $zipFileName = "screenshoter-win.zip"
+
+        7z a $zipFileName "$($stagingDir)\*"
+        Write-Host "Listing contents of ${zipFileName}:"
+        7z l $zipFileName
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
       with:
         files: screenshoter-win.zip
-        exclude_source: true
+        generate_release_notes: true
