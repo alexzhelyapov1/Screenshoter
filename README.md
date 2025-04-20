@@ -12,41 +12,16 @@ Screenshots you can find in `C:\SS` wich is shared in local net via `install.ps1
 
 
 
-# Install & uninstall
+## Install
 
-## With certificate (recommended)
-To avoid problems with starting app from "Unknown Publisher" you can install my Sertificate. Then there are no problem to start app. If you already used my apps, you can skip install `.cer` steps without doubts.
+Just download installer. Follow steps, do not change anything.
 
-### 1. Install certificate
-Double click `trust_alex.cer` -> install certificate.
-
-### 2. Install app
-Run powershell **as Admin**:
-```bash
-# cd release dir
-.\install.ps1
-```
-
-### 3. Uninstall app
-Run powershell **as Admin**:
-```bash
-# cd release dir
-.\uninstall.ps1
-```
-
-
-## Without certificate
-
-### 1. Install app
-Run powershell **as Admin**:
-```bash
-# cd release dir
-powershell.exe -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-### 2. Uninstall app
-Run powershell **as Admin**:
-```bash
-# cd release dir
-powershell.exe -ExecutionPolicy Bypass -File .\uninstall.ps1
-```
+## Install certificate
+To awoid warning from defender install my digital certificate.
+- Download `trust_alex.cer` from release
+- Double click `trust_alex.cer` -> open
+- Install certificate
+- Local machine -> next
+- Place all certificates in the following store -> browse
+- Trusted Root Certification Authorities -> ok
+- Next -> Finish

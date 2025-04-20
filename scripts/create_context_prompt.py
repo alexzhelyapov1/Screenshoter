@@ -8,6 +8,7 @@ file_paths = [
     "scripts/uninstall.ps1",
     ".github/workflows/release.yml",
     "src/main.cpp",
+    "setup/UpdateServiceScreen.iss",
 ]
 
 # Имя выходного файла
