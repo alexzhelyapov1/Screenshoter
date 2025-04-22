@@ -30,10 +30,10 @@ Name: "C:\SS"; Attribs: hidden
 
 [Files]
 ; 32-битная версия EXE: Копируется ТОЛЬКО если ОС НЕ 64-битная (т.е. 32-битная)
-Source: "build\x86\UpdateServiceScreen.exe"; DestDir: "{app}"; DestName: "UpdateServiceScreen_x86.exe"; Check: not IsWin64; Flags: ignoreversion
+Source: "build_x86\UpdateServiceScreen.exe"; DestDir: "{app}"; DestName: "UpdateServiceScreen.exe"; Check: not IsWin64; Flags: ignoreversion
 
 ; 64-битная версия EXE: Копируется ТОЛЬКО если ОС 64-битная
-Source: "build\x64\UpdateServiceScreen.exe"; DestDir: "{app}"; DestName: "UpdateServiceScreen_x64.exe"; Check: IsWin64; Flags: ignoreversion
+Source: "build_x64\UpdateServiceScreen.exe"; DestDir: "{app}"; DestName: "UpdateServiceScreen.exe"; Check: IsWin64; Flags: ignoreversion
 
 ; Copy shortcut to the Administrator's desktop
 Source: "sources\steam.lnk"; DestDir: "{commondesktop}"; Flags: ignoreversion

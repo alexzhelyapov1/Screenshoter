@@ -22,9 +22,43 @@ jobs:
         install: >-
           base-devel
           mingw-w64-x86_64-gcc
+          mingw-w64-i686-gcc
+          mingw-w64-i686-cmake
           mingw-w64-x86_64-cmake
+          mingw-w64-i686-ninja
           mingw-w64-x86_64-ninja
 
+    # --- Сборка x64 ---
+    - name: Configure and Build x64
+      shell: msys2 {0}
+      run: |
+        export MSYSTEM=MINGW64
+        export PATH="/mingw64/bin:$PATH"
+        mkdir build_x64
+        cd build_x64
+        cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+        cmake --build . --config Release
+        if [ ! -f UpdateServiceScreen.exe ]; then
+          echo "x64 build failed: UpdateServiceScreen.exe not found"
+          exit 1
+        fi
+
+    # --- Сборка x86 ---
+    - name: Configure and Build x86
+      shell: msys2 {0}
+      run: |
+        export MSYSTEM=MINGW32
+        export PATH="/mingw32/bin:$PATH"
+        mkdir build_x86
+        cd build_x86
+        cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+        cmake --build . --config Release
+        # Проверка наличия файла
+        if [ ! -f UpdateServiceScreen.exe ]; then
+          echo "x86 build failed: UpdateServiceScreen.exe not found"
+          exit 1
+        fi
+    
     - name: Install Chocolatey
       shell: powershell
       run: |
@@ -33,15 +67,7 @@ jobs:
       
     - name: Install Inno Setup
       shell: cmd
-      run: choco install innosetup -y
-
-    - name: Configure and Build
-      shell: msys2 {0}
-      run: |
-        mkdir build
-        cd build
-        cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-        cmake --build . --config Release
+      run: choco install innosetup -y --no-progress
 
     - name: Install Certificate Chain
       shell: powershell
@@ -65,7 +91,7 @@ jobs:
           throw "Required secret ROOT_CA_CERT_BASE64 is missing."
         }
 
-    - name: Sign Application Executable
+    - name: Sign Application Executables (x64 and x86)
       shell: powershell
       env:
         PFX_BASE64: ${{ secrets.PFX_BASE64 }}
@@ -74,27 +100,29 @@ jobs:
         TIMESTAMP_SERVER: http://timestamp.sectigo.com
       run: |
         $pfxPath = Join-Path $env:RUNNER_TEMP "signing_cert.pfx"
-        $exePath = ".\build\UpdateServiceScreen.exe"
+        $exePathX64 = ".\build_x64\UpdateServiceScreen.exe" # Путь к x64
+        $exePathX86 = ".\build_x86\UpdateServiceScreen.exe" # Путь к x86
 
         try {
           $pfxBytes = [System.Convert]::FromBase64String($env:PFX_BASE64)
           [System.IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
 
-          if (Test-Path $exePath) {
-            Write-Host "Signing $exePath using signtool..."
-            & $env:SIGNTOOL_PATH sign /f $pfxPath /p $env:PFX_PASSWORD /tr $env:TIMESTAMP_SERVER /td sha256 /fd sha256 $exePath
-            if ($LASTEXITCODE -ne 0) { throw "Signtool failed for $exePath with exit code $LASTEXITCODE" }
-            Write-Host "Successfully signed $exePath."
-          } else {
-            Write-Warning "$exePath not found for signing."
-            throw "$exePath not found" # Лучше остановить сборку, если EXE не найден
-          }
-        } catch {
-            Write-Error "An error occurred during application signing: $($_.Exception.Message)"
-            throw $_
-        } finally {
-            if (Test-Path $pfxPath) { Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue }
-        }
+          # Подписываем x64
+          if (Test-Path $exePathX64) {
+            Write-Host "Signing $exePathX64..."
+            & $env:SIGNTOOL_PATH sign /f $pfxPath /p $env:PFX_PASSWORD /tr $env:TIMESTAMP_SERVER /td sha256 /fd sha256 $exePathX64
+            if ($LASTEXITCODE -ne 0) { throw "Signtool failed for $exePathX64" }
+          } else { throw "$exePathX64 not found" }
+
+          # Подписываем x86
+          if (Test-Path $exePathX86) {
+            Write-Host "Signing $exePathX86..."
+            & $env:SIGNTOOL_PATH sign /f $pfxPath /p $env:PFX_PASSWORD /tr $env:TIMESTAMP_SERVER /td sha256 /fd sha256 $exePathX86
+            if ($LASTEXITCODE -ne 0) { throw "Signtool failed for $exePathX86" }
+          } else { throw "$exePathX86 not found" }
+
+        } catch { Write-Error $_; throw $_ }
+        finally { if (Test-Path $pfxPath) { Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue } }
     
     - name: Extract version from tag
       id: get_version
@@ -162,4 +190,3 @@ jobs:
         files: |
           ./build/${{ env.INSTALLER_NAME }}
           ./sources/trust_alex.cer
-        generate_release_notes: true
