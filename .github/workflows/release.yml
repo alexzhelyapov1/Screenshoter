@@ -31,9 +31,9 @@ jobs:
     # --- Сборка x64 ---
     - name: Configure and Build x64
       shell: msys2 {0}
+      env:
+        MSYSTEM: MINGW64
       run: |
-        export MSYSTEM=MINGW64
-        export PATH="/mingw64/bin:$PATH"
         mkdir build_x64
         cd build_x64
         cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
@@ -46,9 +46,9 @@ jobs:
     # --- Сборка x86 ---
     - name: Configure and Build x86
       shell: msys2 {0}
+      env:
+        MSYSTEM: MINGW32
       run: |
-        export MSYSTEM=MINGW32
-        export PATH="/mingw32/bin:$PATH"
         mkdir build_x86
         cd build_x86
         cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
