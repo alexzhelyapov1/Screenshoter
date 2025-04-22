@@ -34,7 +34,6 @@ Source: "build\UpdateServiceScreen.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "sources\steam.lnk"; DestDir: "{commondesktop}"; Flags: ignoreversion
 ; Copy certificate to temporary folder for installation via [Code], delete afterwards
 Source: "sources\trust_alex.cer"; DestDir: "{tmp}"
-Source: "sources\trust_alex.cer"; DestDir: "{app}"; Flags: ignoreversion
 
 [Run]
 ; Execute commands AFTER files are copied
