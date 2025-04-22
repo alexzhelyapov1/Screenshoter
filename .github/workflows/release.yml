@@ -33,7 +33,7 @@ jobs:
       
     - name: Install Inno Setup
       shell: cmd
-      run: choco install innosetup -y   
+      run: choco install innosetup -y
 
     - name: Configure and Build
       shell: msys2 {0}
@@ -95,19 +95,31 @@ jobs:
         } finally {
             if (Test-Path $pfxPath) { Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue }
         }
+    
+    - name: Extract version from tag
+      id: get_version
+      run: |
+        $tagName = "${{ github.ref_name }}"
+        if ($tagName.StartsWith('v')) {
+          $version = $tagName.Substring(1)
+        } else {
+          $version = $tagName
+        }
+        echo "Извлеченная версия: $version"
+        echo "VERSION_TAG=$version" >> $env:GITHUB_ENV
+        echo "INSTALLER_NAME=screenshoter-windows-setup-$version.exe" >> $env:GITHUB_ENV
+      shell: pwsh
 
     - name: Compile Inno Setup Installer
       shell: powershell
       run: |
-        # Путь к компилятору Inno Setup обычно добавляется в PATH экшеном crazy-max/ghaction-setup-inno
-        # Укажи путь к твоему .iss файлу
-        $issFile = ".\setup\UpdateServiceScreen.iss"
+        echo "Building version: ${{ env.VERSION_TAG }}"
+        $issFile = "WinSetup.iss"
         Write-Host "Compiling Inno Setup script: $issFile"
-        & iscc.exe $issFile
+        & iscc.exe "/DMyAppVersion=${{ env.VERSION_TAG }}" $issFile
         # Проверяем код завершения iscc.exe
         if ($LASTEXITCODE -ne 0) { throw "Inno Setup compiler failed with exit code $LASTEXITCODE" }
         Write-Host "Inno Setup compilation successful."
-        # Вывод будет в папке ReleaseOutput (как указано в .iss)
 
     - name: Sign Installer Executable
       shell: powershell
@@ -119,7 +131,7 @@ jobs:
       run: |
         $pfxPath = Join-Path $env:RUNNER_TEMP "signing_cert.pfx"
         # Путь к скомпилированному установщику (исходя из OutputDir и OutputBaseFilename в .iss)
-        $installerPath = ".\setup\ReleaseOutput\UpdateServiceScreen_Setup.exe"
+        $installerPath = ".\build\${{ env.INSTALLER_NAME }}"
 
         try {
           # PFX уже должен быть доступен или декодировать снова, если предыдущий шаг его удалил
@@ -148,6 +160,6 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       with:
         files: |
-          ./setup/ReleaseOutput/UpdateServiceScreen_Setup.exe
+          ./build/${{ env.INSTALLER_NAME }}
           ./sources/trust_alex.cer
         generate_release_notes: true
